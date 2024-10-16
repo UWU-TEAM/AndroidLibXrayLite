@@ -3,40 +3,41 @@ name: Build
 on:
   workflow_dispatch:
     inputs:
+      CORE:
+        description: 'Xray-core Version'
+        required: false
+        default: ''
       release_tag:
+        description: 'Tag Version'
         required: true
         type: string
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to be able to publish a GitHub release
+      issues: write # to be able to comment on released issues
+      pull-requests: write # to be able to comment on released pull requests
+      id-token: write # to enable use of OIDC
+
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4.1.7
 
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-      
-    - name: Setup Golang
-      uses: actions/setup-go@v4
-      with:
-        go-version-file: 'go.mod'
-      
-    - name: Setup JDK
+    - name: Setup Java
       uses: actions/setup-java@v4
       with:
-        java-version: 17
         distribution: 'temurin'
-        
-    - name: Setup Android SDK Tools
-      uses: android-actions/setup-android@v3.2.0
+        java-version: '17'
+
+    - name: Setup Golang
+      uses: actions/setup-go@v5
       with:
-        cmdline-tools-version: 10406996
-        
-    - name: Setup Android NDK
-      uses: nttld/setup-ndk@v1.4.2
-      with:
-        ndk-version: 'r26b'
-        link-to-sdk: true
-    - name: Setup Go Mobile
+        go-version: '^1.22.5'
+        cache: false
+
+    - name: Install gomobile
       run: |
         go install golang.org/x/mobile/cmd/gomobile@latest
         export PATH=$PATH:~/go/bin
@@ -46,12 +47,23 @@ jobs:
          mkdir -p assets data
          bash gen_assets.sh download
          cp -v data/*.dat assets/
+         go get github.com/xtls/xray-core@${{ github.event.inputs.CORE }} || true
          gomobile init
          go mod tidy
-         gomobile bind -v -androidapi 21 -ldflags='-s -w' ./
+         gomobile bind -v -androidapi 27 -ldflags='-s -w' ./
+
     - name: Upload AndroidLibXrayLite to release
       uses: svenstaro/upload-release-action@v2
       with:
         file: ./libv2ray*r
         tag: ${{ github.event.inputs.release_tag }}
         file_glob: true
+
+    - name: Update library
+      run: |
+        git config --global user.email jarbull86@gmail.com
+        git config --global user.name AnGgIt86
+        rm -rfd *.jar && rm -rfd libv2ray*r && rm -rfd data
+        git add -f .
+        git commit -m "Core Update ${{ github.event.inputs.release_tag }}"
+        git push
